@@ -36,25 +36,3 @@ jobs:
 
       - name: Run linting
         run: npm run lint
-
-  bump-version:
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: "0"
-
-      - name: Bump version and push tag
-        uses: anothrNick/github-tag-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
-          DEFAULT_BUMP: patch
-          TAG_PREFIX: v
-          WITH_V: true # Ensures consistent v prefix
-          SKIP_TAG_PUSH: false
-          CREATE_ANNOTATED_TAG: true

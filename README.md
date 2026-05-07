@@ -1,6 +1,6 @@
 # github-actions-ec2-pipeline
 
-> GitHub Actions pipeline that builds, tests, versions, and deploys a Node.js app
+> GitHub Actions pipeline that builds, tests, and deploys a Node.js app
 > to AWS EC2 with PM2 reload, rollback support, and scheduled health checks.
 
 [![CI Pipeline](https://github.com/darestack/github-actions-ec2-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/darestack/github-actions-ec2-pipeline/actions/workflows/ci.yml)
@@ -13,12 +13,11 @@
 Push to main / feature branch
   │
   └── ci.yml
-        ├── build-and-test: Node 22/24 matrix → npm ci → Jest tests → ESLint gate
-        └── bump-version (main only): patch version bump → git tag v1.x.x
+        └── build-and-test: Node 22/24 matrix → npm ci → Jest tests → ESLint gate
                 │
-                └── release.yml (triggered by tag v*)
+                └── release.yml (manual dispatch or pushed v* tag)
                       ├── deploy: tar.gz → SCP to EC2 → deploy.sh (PM2 reload, atomic symlink swap)
-                      └── create-release: GitHub Release with changelog
+                      └── create-release: GitHub Release for tagged deploys
 ```
 
 ### Key Design Decisions
@@ -27,9 +26,9 @@ Push to main / feature branch
 |---|---|---|
 | **Low-interruption deploy** | `pm2 reload` + atomic symlink swap (`current -> release-timestamp`) | Keeps deploy behavior predictable and rollback-friendly |
 | **Auto-rollback** | `deploy.sh` keeps the previous `current` target until the new release passes health checks | Restores the last known-good symlink if deploy breaks the app |
-| **Automatic versioning** | `bump-version` job creates `v1.x.x` tags on every merge to main | Release history is automatic; no manual tagging |
+| **Controlled release trigger** | `release.yml` runs from a manual dispatch or pushed `v*` tag | Avoids accidental EC2 deploys from routine CI commits |
 | **Health check monitoring** | Scheduled workflow runs hourly and reuses one open health-check issue while an outage is active | Avoids duplicate alert noise and keeps incident state readable |
-| **Separate CI / CD workflows** | `ci.yml` + `release.yml` split by tag trigger | CD only runs on verified, tagged builds — not every push |
+| **Separate CI / CD workflows** | `ci.yml` validates code; `release.yml` deploys from manual or tag triggers | Keeps routine validation separate from EC2 deployment |
 
 ---
 
@@ -39,10 +38,9 @@ Push to main / feature branch
 Triggers: push to `main`, `development`, `feature/*` branches + all PRs
 
 1. **`build-and-test`**: Node 22/24 matrix → `npm ci` → Jest test suite → ESLint gate
-2. **`bump-version`** (main only): increments patch version, pushes `v1.x.x` tag — triggers `release.yml`
 
 ### `release.yml` — Continuous Deployment  
-Triggers: new tag matching `v*`
+Triggers: manual dispatch or new tag matching `v*`
 
 1. **`deploy`**: packages build → SCP to EC2 → runs `/var/www/app/scripts/deploy.sh`
    - Installs dependencies in release dir → atomic symlink `current` → `pm2 reload`
@@ -61,7 +59,6 @@ Runs hourly. Hits `/api/health` for configured environments. If a check fails, t
 | `PROD_EC2_HOST` | Production EC2 hostname or IP |
 | `PROD_EC2_USER` | SSH username |
 | `PROD_EC2_KEY` | Private SSH key (PEM format) |
-| `REPO_ACCESS_TOKEN` | PAT with `repo` scope — needed for `bump-version` to push tags |
 
 Also set: **Actions → General → Workflow permissions → Read and write** (allows built-in token to create releases and issues).
 
