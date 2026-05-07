@@ -5,12 +5,15 @@ on:
     tags:
       - "v*"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Set up deployment environment
         run: |
@@ -39,22 +42,23 @@ jobs:
           # copy tarball to EC2
           scp -o StrictHostKeyChecking=no -i private_key.pem deployment.tar.gz $EC2_USER@$EC2_HOST:/tmp/
 
-          # extract and run deploy.sh on EC2
+          # Extract and run deploy.sh from /tmp so /var/www/app only contains release-managed files.
           ssh -o StrictHostKeyChecking=no -i private_key.pem $EC2_USER@$EC2_HOST "
-            mkdir -p /var/www/app &&
-            tar -xzf /tmp/deployment.tar.gz -C /var/www/app &&
-            chmod +x /var/www/app/scripts/deploy.sh &&
-            /var/www/app/scripts/deploy.sh
+            rm -rf /tmp/ec2-pipeline-deploy &&
+            mkdir -p /tmp/ec2-pipeline-deploy /var/www/app &&
+            tar -xzf /tmp/deployment.tar.gz -C /tmp/ec2-pipeline-deploy &&
+            chmod +x /tmp/ec2-pipeline-deploy/scripts/deploy.sh &&
+            /tmp/ec2-pipeline-deploy/scripts/deploy.sh
           "
 
   create-release:
     needs: deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

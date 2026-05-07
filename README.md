@@ -13,7 +13,7 @@
 Push to main / feature branch
   │
   └── ci.yml
-        ├── build-and-test: npm ci → Jest tests → pass/fail gate
+        ├── build-and-test: Node 22/24 matrix → npm ci → Jest tests → ESLint gate
         └── bump-version (main only): patch version bump → git tag v1.x.x
                 │
                 └── release.yml (triggered by tag v*)
@@ -26,7 +26,7 @@ Push to main / feature branch
 | Decision | Implementation | Why |
 |---|---|---|
 | **Low-interruption deploy** | `pm2 reload` + atomic symlink swap (`current -> release-timestamp`) | Keeps deploy behavior predictable and rollback-friendly |
-| **Auto-rollback** | `deploy.sh` keeps previous release; restores on failure | No manual intervention if deploy breaks the app |
+| **Auto-rollback** | `deploy.sh` keeps the previous `current` target until the new release passes health checks | Restores the last known-good symlink if deploy breaks the app |
 | **Automatic versioning** | `bump-version` job creates `v1.x.x` tags on every merge to main | Release history is automatic; no manual tagging |
 | **Health check monitoring** | Scheduled workflow runs hourly and reuses one open health-check issue while an outage is active | Avoids duplicate alert noise and keeps incident state readable |
 | **Separate CI / CD workflows** | `ci.yml` + `release.yml` split by tag trigger | CD only runs on verified, tagged builds — not every push |
@@ -38,7 +38,7 @@ Push to main / feature branch
 ### `ci.yml` — Continuous Integration
 Triggers: push to `main`, `development`, `feature/*` branches + all PRs
 
-1. **`build-and-test`**: `npm ci` → Jest test suite → pass required before merge
+1. **`build-and-test`**: Node 22/24 matrix → `npm ci` → Jest test suite → ESLint gate
 2. **`bump-version`** (main only): increments patch version, pushes `v1.x.x` tag — triggers `release.yml`
 
 ### `release.yml` — Continuous Deployment  
@@ -69,7 +69,9 @@ Also set: **Actions → General → Workflow permissions → Read and write** (a
 
 ## Application Stack
 
-`Node.js 20 LTS` · `Express` · `Jest` · `PM2` · `GitHub Actions` · `AWS EC2`
+`Node.js 22/24` · `Express` · `Jest` · `PM2` · `GitHub Actions` · `AWS EC2`
+
+The EC2 host should run Node.js 22 or 24 so the deployed runtime matches CI.
 
 ---
 

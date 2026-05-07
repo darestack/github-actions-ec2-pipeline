@@ -9,9 +9,12 @@ concurrency:
   group: health-check
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   health-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
       contents: read
@@ -57,7 +60,7 @@ jobs:
       - name: Find existing health-check issue
         id: existing_issue
         if: failure() && steps.check.outputs.failed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -69,7 +72,7 @@ jobs:
 
       - name: Create health-check issue
         if: failure() && steps.check.outputs.failed == 'true' && steps.existing_issue.outputs.number == ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = [
@@ -88,7 +91,7 @@ jobs:
 
       - name: Update existing health-check issue
         if: failure() && steps.check.outputs.failed == 'true' && steps.existing_issue.outputs.number != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const body = [
