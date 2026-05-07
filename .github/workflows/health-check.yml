@@ -2,70 +2,110 @@ name: Health Check
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: "0 * * * *"
   workflow_dispatch:
+
+concurrency:
+  group: health-check
+  cancel-in-progress: true
 
 jobs:
   health-check:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      contents: read
 
     steps:
-      - name: Check Production Environment
-        id: check_prod
+      - name: Check endpoints
+        id: check
         run: |
-          set +e # Allow curl to fail without exiting the script
-          CURL_OUTPUT=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PROD_URL }}/api/health 2>&1)
-          HTTP_CODE=$(echo $CURL_OUTPUT | tail -n 1)
-          CURL_ERROR=$(echo $CURL_OUTPUT | head -n -1)
+          set +e
+          failures=""
 
-          if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "Production environment is down! HTTP Code: $HTTP_CODE"
-            echo "PROD_DOWN=true" >> $GITHUB_ENV
-            echo "PROD_ERROR=$CURL_ERROR" >> $GITHUB_ENV
-          else
-            echo "Production environment is up. HTTP Code: $HTTP_CODE"
+          check_url() {
+            name="$1"
+            url="$2"
+
+            if [ -z "$url" ]; then
+              echo "::notice::$name URL is not configured; skipping."
+              return
+            fi
+
+            http_code=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --max-time 10 "$url/api/health")
+            curl_status=$?
+
+            if [ "$curl_status" -ne 0 ] || [ "$http_code" -ne 200 ]; then
+              failures="${failures}${name}: ${url}/api/health returned ${http_code} (curl exit ${curl_status})%0A"
+              echo "::error::$name health check failed with HTTP $http_code"
+            else
+              echo "$name health check passed with HTTP $http_code"
+            fi
+          }
+
+          check_url "production" "${{ secrets.PROD_URL }}"
+          check_url "development" "${{ secrets.DEV_URL }}"
+
+          if [ -n "$failures" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "failures=$failures" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
 
-      - name: Check Development Environment
-        id: check_dev
-        run: |
-          set +e # Allow curl to fail without exiting the script
-          CURL_OUTPUT=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEV_URL }}/api/health 2>&1)
-          HTTP_CODE=$(echo $CURL_OUTPUT | tail -n 1)
-          CURL_ERROR=$(echo $CURL_OUTPUT | head -n -1)
+          echo "failed=false" >> "$GITHUB_OUTPUT"
 
-          if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "Development environment is down! HTTP Code: $HTTP_CODE"
-            echo "DEV_DOWN=true" >> $GITHUB_ENV
-            echo "DEV_ERROR=$CURL_ERROR" >> $GITHUB_ENV
-          else
-            echo "Development environment is up. HTTP Code: $HTTP_CODE"
-          fi
-
-      - name: Create Issue on Failure
-        if: env.PROD_DOWN == 'true' || env.DEV_DOWN == 'true'
+      - name: Find existing health-check issue
+        id: existing_issue
+        if: failure() && steps.check.outputs.failed == 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            let body = ''
-            if (process.env.PROD_DOWN === 'true') {
-              body += 'Production environment is down!\n'
-              if (process.env.PROD_ERROR) {
-                body += `cURL Error: ${process.env.PROD_ERROR}\n`
-              }
-            }
-            if (process.env.DEV_DOWN === 'true') {
-              body += 'Development environment is down!\n'
-              if (process.env.DEV_ERROR) {
-                body += `cURL Error: ${process.env.DEV_ERROR}\n`
-              }
-            }
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Application Health Check Failed',
-              body: body
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} is:issue is:open in:title "Application Health Check Failed"`,
+              per_page: 1,
             });
+            core.setOutput("number", data.items[0]?.number || "");
+
+      - name: Create health-check issue
+        if: failure() && steps.check.outputs.failed == 'true' && steps.existing_issue.outputs.number == ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "The scheduled health check failed.",
+              "",
+              "${{ steps.check.outputs.failures }}".replaceAll("%0A", "\n"),
+              "",
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join("\n");
+
+            await github.rest.issues.create({
+              ...context.repo,
+              title: "Application Health Check Failed",
+              body,
+            });
+
+      - name: Update existing health-check issue
+        if: failure() && steps.check.outputs.failed == 'true' && steps.existing_issue.outputs.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "The scheduled health check is still failing.",
+              "",
+              "${{ steps.check.outputs.failures }}".replaceAll("%0A", "\n"),
+              "",
+              `Latest workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: Number("${{ steps.existing_issue.outputs.number }}"),
+              body,
+            });
+
+      - name: Fail workflow after reporting
+        if: failure() && steps.check.outputs.failed == 'true'
+        run: |
+          exit 1

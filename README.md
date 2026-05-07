@@ -1,7 +1,7 @@
 # github-actions-ec2-pipeline
 
 > GitHub Actions pipeline that builds, tests, versions, and deploys a Node.js app
-> to AWS EC2 — zero manual steps after initial setup.
+> to AWS EC2 with PM2 reload, rollback support, and scheduled health checks.
 
 [![CI Pipeline](https://github.com/darestack/github-actions-ec2-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/darestack/github-actions-ec2-pipeline/actions/workflows/ci.yml)
 
@@ -25,10 +25,10 @@ Push to main / feature branch
 
 | Decision | Implementation | Why |
 |---|---|---|
-| **Zero-downtime deploy** | `pm2 reload` + atomic symlink swap (`current → release-timestamp`) | App stays up during deployment; rollback is a symlink change |
+| **Low-interruption deploy** | `pm2 reload` + atomic symlink swap (`current -> release-timestamp`) | Keeps deploy behavior predictable and rollback-friendly |
 | **Auto-rollback** | `deploy.sh` keeps previous release; restores on failure | No manual intervention if deploy breaks the app |
 | **Automatic versioning** | `bump-version` job creates `v1.x.x` tags on every merge to main | Release history is automatic; no manual tagging |
-| **Health check monitoring** | Scheduled workflow every 5 min; creates a GitHub Issue on failure | On-call alert without a third-party service |
+| **Health check monitoring** | Scheduled workflow runs hourly and reuses one open health-check issue while an outage is active | Avoids duplicate alert noise and keeps incident state readable |
 | **Separate CI / CD workflows** | `ci.yml` + `release.yml` split by tag trigger | CD only runs on verified, tagged builds — not every push |
 
 ---
@@ -50,7 +50,7 @@ Triggers: new tag matching `v*`
 2. **`create-release`**: publishes GitHub Release with tag name
 
 ### `health-check.yml` — Uptime Monitoring
-Runs every 5 minutes. Hits `/api/health`. Creates a GitHub Issue if the check fails.
+Runs hourly. Hits `/api/health` for configured environments. If a check fails, the workflow creates one health-check issue or comments on the existing open issue instead of creating duplicates.
 
 ---
 
