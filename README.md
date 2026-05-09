@@ -20,6 +20,23 @@ Push to main / feature branch
                       └── create-release: GitHub Release for tagged deploys
 ```
 
+---
+
+## Deployment Evidence
+
+This lab was deployed to a temporary EC2 instance and the instance was later
+destroyed after the exercise. The repo is kept as deployment automation
+evidence, not as a currently running service.
+
+| Evidence | Link |
+|---|---|
+| Latest successful tagged deploy | [Release and Deploy run: v1.0.20](https://github.com/darestack/github-actions-ec2-pipeline/actions/runs/18031293362) |
+| GitHub release created by the workflow | [Release v1.0.20](https://github.com/darestack/github-actions-ec2-pipeline/releases/tag/v1.0.20) |
+| EC2 instance from the lab | [devops-labs screenshot](https://github.com/darestack/devops-labs/blob/main/Module-3/mini-project-07/img/ec2-dashboard.png) |
+| GitHub Actions deploy workflow | [devops-labs screenshot](https://github.com/darestack/devops-labs/blob/main/Module-3/mini-project-07/img/deploy-workflow.png) |
+| Successful Actions run | [devops-labs screenshot](https://github.com/darestack/devops-labs/blob/main/Module-3/mini-project-07/img/actions-success.png) |
+| App running on the EC2 public IP | [devops-labs screenshot](https://github.com/darestack/devops-labs/blob/main/Module-3/mini-project-07/img/live-app.png) |
+
 ### Key Design Decisions
 
 | Decision | Implementation | Why |
@@ -50,6 +67,10 @@ Triggers: manual dispatch or new tag matching `v*`
 ### `health-check.yml` — Uptime Monitoring
 Runs hourly. Hits `/api/health` for configured environments. If a check fails, the workflow creates one health-check issue or comments on the existing open issue instead of creating duplicates.
 
+Current scheduled health-check runs skip endpoint checks unless `PROD_URL` or
+`DEV_URL` is configured. That is intentional for this archived EC2 lab: the old
+host is gone, but the workflow is ready to use again if the app is re-deployed.
+
 ---
 
 ## Required GitHub Secrets
@@ -59,6 +80,8 @@ Runs hourly. Hits `/api/health` for configured environments. If a check fails, t
 | `PROD_EC2_HOST` | Production EC2 hostname or IP |
 | `PROD_EC2_USER` | SSH username |
 | `PROD_EC2_KEY` | Private SSH key (PEM format) |
+| `PROD_URL` | Optional public base URL for scheduled health checks |
+| `DEV_URL` | Optional development base URL for scheduled health checks |
 
 Also set: **Actions → General → Workflow permissions → Read and write** (allows built-in token to create releases and issues).
 
